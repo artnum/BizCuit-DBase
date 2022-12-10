@@ -252,9 +252,8 @@ char * _get_text_field (char * data, uint32_t len) {
 	size_t outlen = len * 4;
 	size_t inlen = len;
 	char * inbuff = data;
-	size_t i = 0;
+	
 	iconv_t idesc;
-
 	outbuff = calloc(outlen, sizeof(*outbuff));
 	out = outbuff;
 	idesc = iconv_open("UTF-8", "ISO-8859-1");
@@ -403,6 +402,9 @@ uint32_t _get_memo_field (char * data, uint32_t len, uint8_t * not_init) {
 }
 
 struct tm _get_datetime_field (char * data, uint32_t len) {
+	struct tm datetime = {0};
+	/* todo */
+	return datetime;
 }
 
 /* dbase number can be int or float, this allow, by looking at the data to
@@ -554,7 +556,7 @@ int main (int argc, char ** argv) {
 						printf(" %s\n", datebuff);
 						break;
 					case DTYPE_INTEGER:
-						printf(" %d\n", field->integer);
+						printf(" %ld\n", field->integer);
 						break;
 					case DTYPE_FLOAT:
 						printf(" %.4f\n", field->number);

@@ -1,0 +1,9 @@
+Compile
+-------
+
+gcc -Wextra -pedantic dbase.c -o dbase
+
+Run
+---
+
+./dbase /path/to/dbf/file.dbf
