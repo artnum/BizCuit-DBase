@@ -1,8 +1,17 @@
+/* dbase III format reader 
+ * export to mysql ? mabye
+ *
+ * Tuned to export winbiz software db
+ *
+ * With help from http://www.independent-software.com/dbase-dbf-dbt-file-format.html
+ *            and https://www.dbase.com/Knowledgebase/INT/db7_file_fmt.htm
+ */
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <iconv.h>
+#include <time.h>
 
 #define TABLE_FILE_HEADER_LEN       68
 #define TABLE_FILE_FIELD_DESC_LEN   48
@@ -44,6 +53,8 @@ struct s_dreco {
 	uint32_t index;
 	uint8_t deleted;
 	dtable_field * first;
+	dtable_record * next;
+	dtable_record * previous;
 };
 
 struct s_dfield {
@@ -53,6 +64,8 @@ struct s_dfield {
 	long int integer;
 	double number;
 	uint8_t boolean;
+	struct tm date;
+	uint32_t memo;
 
 	uint8_t not_init;
 
@@ -110,7 +123,7 @@ dtable_fdesc * parse_fdesc (char * data, dtable_fdesc * previous) {
 	char * in = data;
 
 	fdesc = calloc(1, sizeof(*fdesc));
-
+	if (!fdesc) { printf("ALLOC ERROR\n"); } 
 	/* iconv move pointer, use x to save */
 	out = fdesc->name;	
 	idesc = iconv_open("UTF-8", "ISO-8859-1");
@@ -196,6 +209,7 @@ char * load_header (FILE * fp) {
 	rewind(fp);
 
 	header = calloc(32, 1);
+	if (!header) { printf("ALLOC ERROR\n"); }
 	fread(header, 1, 32, fp);
 	return header;
 }
@@ -206,6 +220,7 @@ char * load_fdesc (FILE * fp, uint32_t idx) {
 	fseek(fp, (long)((idx * 32) + 32), SEEK_SET);
 
 	fdesc = calloc(32, 1);
+	if (!fdesc) { printf("ALLOC ERROR\n"); }
 	fread(fdesc, 1, 32, fp);
 
 	strncpy(name, fdesc, 11);
@@ -215,19 +230,25 @@ char * load_fdesc (FILE * fp, uint32_t idx) {
 	return fdesc;
 }
 
-char * load_record (FILE * fp, uint32_t idx, dtable_header * header) {
+char * load_record (FILE * fp, uint32_t idx, dtable_header * header, char * buffer) {
 	char * data = NULL;
 	fseek(fp, (long)(header->hsize + (idx * header->recsize)), SEEK_SET);
-	
-	data = calloc(header->recsize, sizeof(*data));
+	if (buffer != NULL) {
+		data = buffer;
+	} else {
+		data = calloc(header->recsize, sizeof(*data));
+	}
+	if (!data) { printf("ALLOC ERROR\n"); }
 	fread(data, sizeof(*data), header->recsize, fp);
 
 	return data;
 }
 
+#define isspace(x) ((x) == 0x20 || (x) == 0x09 || (x) == 0x0A || (x) == 0x0D)
+
 char * _get_text_field (char * data, uint32_t len) {
 	char * outbuff;
-	char * out;
+	char * out = NULL;
 	size_t outlen = len * 4;
 	size_t inlen = len;
 	char * inbuff = data;
@@ -240,10 +261,10 @@ char * _get_text_field (char * data, uint32_t len) {
 	iconv(idesc, &inbuff, &inlen, &outbuff, &outlen);
 	iconv_close(idesc);
 
-	/* trim padding at end */
-	for (i = (len * 4) - 1; *(out + i) == 0x20 || *(out + i) == 0x00; i--) {
-		*(out + i) = '\0';
-	}
+	outbuff = out + strlen(out) - 1;
+	while (outbuff > out && isspace((unsigned char)*outbuff)) { outbuff--; }
+	if (isspace(*outbuff)) { *outbuff = 0x00; }
+	outbuff[1] = 0x00;
 
 	return out;
 }
@@ -312,8 +333,98 @@ int _get_bool_field (char * data) {
 	}
 }
 
-int _get_date_field (char * data, uint32_t len) {
+#define is_int(c) (((c) >= 0x30 && (c) <= 0x39)) 
+struct tm _get_date_field (char * data, uint32_t len, uint8_t *not_init) {
+	uint32_t i = 0;
+	struct tm date;
+	date.tm_sec = 0;
+	date.tm_min = 0;
+	date.tm_hour = 0;
+	date.tm_isdst = 1; // ch daylight saving
+	date.tm_year = 0;
+	date.tm_mday = 0;
+	date.tm_mon = 0;
+
+	if (isspace(*data)) { 
+		mktime(&date);
+		*not_init = 1;
+		return date;
+	}
+	*not_init = 0;
+	for (i = 0; i < len; i++) {
+		if (!is_int(*(data + i))) {
+			*not_init = 1;
+			break;
+		}
+		if (i < 4) {
+			date.tm_year *= 10;
+			date.tm_year += (*(data + i) - 0x30);
+		} else if (i >= 4 && i < 6) {
+			date.tm_mon *= 10;
+			date.tm_mon += (*(data + i) - 0x30);
+		} else {
+			date.tm_mday *= 10;
+			date.tm_mday += (*(data + i) - 0x30);
+		}
+	}
+
+	if (*not_init) {
+		date.tm_year = 0;
+		date.tm_mon = 0;
+		date.tm_mday = 0;
+	} else {
+		date.tm_year -= 1900;
+		date.tm_mon--; // 0 to 11
+	}
 	
+	mktime(&date);
+	return date;
+}
+
+/* memo can be either string or binary ... */
+uint32_t _get_memo_field (char * data, uint32_t len, uint8_t * not_init) {
+	uint32_t block = 0;
+	if (len > 4) { /* string encoded */
+		block = (uint32_t) _get_int_field(data, len);
+		if (block == 0) {
+			*not_init = 1;
+		} else {
+			*not_init = 0;
+		}
+		return block;
+	}
+	if (len != 4) { *not_init = 1; return 0; }
+	/* binary encoded */
+	block = *(data);
+	block |= *(data + 1) << 8;
+	block |= *(data + 2) << 16;
+	block |= *(data + 3) << 24;
+	return block;
+}
+
+struct tm _get_datetime_field (char * data, uint32_t len) {
+}
+
+/* dbase number can be int or float, this allow, by looking at the data to
+ * distinguish them
+ */
+void preflight_record (char * data, dtable_header * header) {
+	int nodiv = 0;
+	uint32_t pos = 1;
+	dtable_fdesc * hcurrent = header->first;
+
+	while (hcurrent) {
+		if (hcurrent->type != DTYPE_FLOAT) { 
+			pos += hcurrent->length; 
+			hcurrent = hcurrent->next;
+			continue;
+		}
+		_get_float_field(data + pos, hcurrent->length, &nodiv);
+		if (nodiv) {
+			hcurrent->intable++;
+		}
+		hcurrent = hcurrent->next;
+	}
 }
 
 dtable_record * parse_record (char * data, dtable_header * header) {
@@ -338,6 +449,12 @@ dtable_record * parse_record (char * data, dtable_header * header) {
 		fcurrent->descriptor = hcurrent;
 		fcurrent->not_init = 0;
 		switch(hcurrent->type) {
+			case DTYPE_MEMO:
+				fcurrent->memo = _get_memo_field(data + pos, hcurrent->length, &(fcurrent->not_init));
+				break;
+			case DTYPE_DATE:
+				fcurrent->date = _get_date_field(data + pos, hcurrent->length, &(fcurrent->not_init));
+				break;
 			case DTYPE_INTEGER:
 				fcurrent->integer = _get_int_field(data + pos, hcurrent->length);
 				break;
@@ -392,6 +509,7 @@ int main (int argc, char ** argv) {
 	char * buffer = NULL;
 	uint32_t i = 0;
 	int j = 0;
+	char datebuff[11];
 
 	if (argc < 2) { return 0; }
 
@@ -409,16 +527,17 @@ int main (int argc, char ** argv) {
 	}
 	dump_header(header);
 
+	buffer = NULL;
 	for (j = 0; j < 2; j++) {	
 		for (i = 0; i < header->recnum; i++) {
 			
-			buffer = load_record(fp, i, header);
-			record = parse_record(buffer, header);
-			record->index = i;
-			free(buffer);
+			buffer = load_record(fp, i, header, buffer);
 			if (j == 0) {
+				preflight_record(buffer, header);
 				continue;
 			}
+			record = parse_record(buffer, header);
+			record->index = i;
 
 			field = record->first;
 
@@ -426,11 +545,26 @@ int main (int argc, char ** argv) {
 			while (field) {
 				printf("\t%s:", field->descriptor->name);
 				switch (field->descriptor->type) {
+					case DTYPE_DATE:
+						if (field->not_init) {
+							printf(" unset\n");
+							break;
+						}
+						strftime(datebuff, 11, "%Y-%m-%d", &(field->date));
+						printf(" %s\n", datebuff);
+						break;
 					case DTYPE_INTEGER:
 						printf(" %d\n", field->integer);
 						break;
 					case DTYPE_FLOAT:
 						printf(" %.4f\n", field->number);
+						break;
+					case DTYPE_MEMO:
+						if (field->not_init) {
+							printf(" unset\n");
+							break;
+						}
+						printf(" @block %d\n", field->memo);
 						break;
 					case DTYPE_CHAR:
 						printf(" \"%s\"\n",  field->text);
@@ -451,7 +585,7 @@ int main (int argc, char ** argv) {
 			free_record(record);
 		}
 	}
-
+	free(buffer);
 	fdesc = header->first;
 	while (fdesc) {
 		if (fdesc->intable == header->recsize) {
