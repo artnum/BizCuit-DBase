@@ -466,7 +466,7 @@ dtable_record * parse_record (char * data, dtable_header * header) {
 		switch(hcurrent->type) {
 			case DTYPE_MEMO:
 				fcurrent->memo = _get_memo_field(data + pos, hcurrent->length, &(fcurrent->not_init));
-				if(!fcurrent->not_init) {
+				if(!fcurrent->not_init && header->memo) {
 					fcurrent->bmemo = memo_get_block(header->memo, fcurrent->memo, &(header->mheader));
 					fcurrent->text = to_utf8(fcurrent->bmemo->data, fcurrent->bmemo->length, header->idesc);
 				}
