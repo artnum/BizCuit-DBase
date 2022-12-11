@@ -13,6 +13,8 @@
 #include <iconv.h>
 #include <time.h>
 
+#include "memo.h"
+
 #define TABLE_FILE_HEADER_LEN       68
 #define TABLE_FILE_FIELD_DESC_LEN   48
 #define TABLE_FILE_FD_TERM          0x0D
@@ -32,6 +34,12 @@ struct s_dtable_header {
 	uint32_t recnum;
 	uint16_t hsize;
 	uint16_t recsize;
+
+	FILE * memo;
+	memo_header mheader;
+
+	iconv_t idesc;
+
 	dtable_fdesc * first;
 };
 
@@ -66,6 +74,7 @@ struct s_dfield {
 	uint8_t boolean;
 	struct tm date;
 	uint32_t memo;
+	memo_block * bmemo;
 
 	uint8_t not_init;
 
@@ -113,9 +122,8 @@ const char * type_to_str (char type) {
 	}
 }
 
-dtable_fdesc * parse_fdesc (char * data, dtable_fdesc * previous) {
+dtable_fdesc * parse_fdesc (char * data, dtable_fdesc * previous, iconv_t idesc) {
 	dtable_fdesc * fdesc = NULL;
-	iconv_t idesc;
 	int i = 0;
 	size_t inleft = 11;
 	size_t outleft = 44;
@@ -126,9 +134,8 @@ dtable_fdesc * parse_fdesc (char * data, dtable_fdesc * previous) {
 	if (!fdesc) { printf("ALLOC ERROR\n"); } 
 	/* iconv move pointer, use x to save */
 	out = fdesc->name;	
-	idesc = iconv_open("UTF-8", "ISO-8859-1");
+
 	iconv(idesc, &in, &inleft, &out, &outleft);
-	iconv_close(idesc);
 
 	while (MAP_TYPE[i][0] != '\0') {
 		if (MAP_TYPE[i][0] == *(data + 11)) {
@@ -162,16 +169,16 @@ dtable_header * parse_header (char * data) {
 	header->month =		(uint8_t)*(data + 2);
 	header->day =		(uint8_t)*(data + 3);
 
-	header->recnum =	(uint32_t)(*(data + 0x07) << 24);
-	header->recnum |=	(uint32_t)(*(data + 0x06) << 16);
-	header->recnum |=	(uint16_t)(*(data + 0x05) << 8);
-	header->recnum |=	(uint8_t)(*(data + 0x04));
+	header->recnum =	(uint32_t)((*(data + 0x07) & 0xFF) << 24);
+	header->recnum |=	(uint32_t)((*(data + 0x06) & 0xFF) << 16);
+	header->recnum |=	(uint32_t)((*(data + 0x05) & 0xFF) << 8);
+	header->recnum |=	(uint32_t)(*(data + 0x04)) & 0xFF;
 	
-	header->hsize =		(uint8_t)*(data + 8);
-	header->hsize |=	(uint16_t)(*(data + 9) << 8);
+	header->hsize =		(uint16_t)(*(data + 8)) & 0xFF;
+	header->hsize |=	(uint16_t)((*(data + 9) & 0xFF) << 8);
 
-	header->recsize =	(uint8_t)*(data + 10);
-	header->recsize |=	(uint16_t)(*(data + 11) << 8);
+	header->recsize =	(uint16_t)(*(data + 10)) & 0xFF;
+	header->recsize |=	(uint16_t)((*(data + 11) & 0xFF) << 8);
 
 	return header;
 }
@@ -186,6 +193,10 @@ void free_header (dtable_header * header) {
 		free(fdesc);
 		fdesc = next;
 	}
+	if (header->memo) {
+		fclose(header->memo);
+	}
+	iconv_close(header->idesc);
 	free(header);
 }
 
@@ -244,28 +255,30 @@ char * load_record (FILE * fp, uint32_t idx, dtable_header * header, char * buff
 	return data;
 }
 
-#define isspace(x) ((x) == 0x20 || (x) == 0x09 || (x) == 0x0A || (x) == 0x0D)
+#define is_space(x) ((x) == 0x20 || (x) == 0x09 || (x) == 0x0A || (x) == 0x0D)
 
-char * _get_text_field (char * data, uint32_t len) {
-	char * outbuff;
+char * to_utf8 (char * data, uint32_t len, iconv_t idesc) {
+	char * outbuff = NULL;
 	char * out = NULL;
-	size_t outlen = len * 4;
-	size_t inlen = len;
 	char * inbuff = data;
-	
-	iconv_t idesc;
+	size_t inlen = len;
+	size_t outlen = len * 4;
+
 	outbuff = calloc(outlen, sizeof(*outbuff));
 	out = outbuff;
-	idesc = iconv_open("UTF-8", "ISO-8859-1");
 	iconv(idesc, &inbuff, &inlen, &outbuff, &outlen);
-	iconv_close(idesc);
 
 	outbuff = out + strlen(out) - 1;
-	while (outbuff > out && isspace((unsigned char)*outbuff)) { outbuff--; }
-	if (isspace(*outbuff)) { *outbuff = 0x00; }
+	while (outbuff > out && is_space((unsigned char)*outbuff)) { outbuff--; }
+	if (is_space(*outbuff)) { *outbuff = 0x00; }
 	outbuff[1] = 0x00;
+	outbuff = out + strlen(out) - 1;
 
 	return out;
+}
+
+char * _get_text_field (char * data, uint32_t len, iconv_t idesc) {
+	return to_utf8(data, len, idesc);
 }
 
 #define is_num(c) (((c) >= 0x30 && (c) <= 0x39) || (c) == 0x2e || (c) == 0x2d) 
@@ -344,7 +357,7 @@ struct tm _get_date_field (char * data, uint32_t len, uint8_t *not_init) {
 	date.tm_mday = 0;
 	date.tm_mon = 0;
 
-	if (isspace(*data)) { 
+	if (is_space(*data)) { 
 		mktime(&date);
 		*not_init = 1;
 		return date;
@@ -394,10 +407,10 @@ uint32_t _get_memo_field (char * data, uint32_t len, uint8_t * not_init) {
 	}
 	if (len != 4) { *not_init = 1; return 0; }
 	/* binary encoded */
-	block = *(data);
-	block |= *(data + 1) << 8;
-	block |= *(data + 2) << 16;
-	block |= *(data + 3) << 24;
+	block  = (uint32_t)((*data) & 0xFF);
+	block |= (uint32_t)((*(data + 1)) & 0xFF) << 8;
+	block |= (uint32_t)((*(data + 2)) & 0xFF) << 16;
+	block |= (uint32_t)((*(data + 3)) & 0xFF) << 24;
 	return block;
 }
 
@@ -453,6 +466,11 @@ dtable_record * parse_record (char * data, dtable_header * header) {
 		switch(hcurrent->type) {
 			case DTYPE_MEMO:
 				fcurrent->memo = _get_memo_field(data + pos, hcurrent->length, &(fcurrent->not_init));
+				if(!fcurrent->not_init) {
+					fcurrent->bmemo = memo_get_block(header->memo, fcurrent->memo, &(header->mheader));
+					fcurrent->text = to_utf8(fcurrent->bmemo->data, fcurrent->bmemo->length, header->idesc);
+				}
+
 				break;
 			case DTYPE_DATE:
 				fcurrent->date = _get_date_field(data + pos, hcurrent->length, &(fcurrent->not_init));
@@ -472,7 +490,7 @@ dtable_record * parse_record (char * data, dtable_header * header) {
 				}
 				break;
 			case DTYPE_CHAR:
-				fcurrent->text = _get_text_field(data + pos, hcurrent->length);
+				fcurrent->text = _get_text_field(data + pos, hcurrent->length, header->idesc);
 				break;	
 			case DTYPE_BOOL:
 				fcurrent->boolean = _get_bool_field(data + pos);
@@ -496,6 +514,7 @@ void free_record (dtable_record * record) {
 	while (c) {
 		tmp = c->next;
 		if (c->text) { free(c->text); }
+		if (c->bmemo) { memo_free_block(c->bmemo); }
 		free(c);
 		c = tmp;
 	}
@@ -522,8 +541,16 @@ int main (int argc, char ** argv) {
 	header = parse_header(buffer);
 	free(buffer);
 
+	header->idesc = iconv_open("UTF-8", "ISO-8859-1");
+	if (header->memo_file && argc > 2) {
+		header->memo = fopen(argv[2], "r");
+		if (header->memo) {
+			memo_get_header(header->memo, &(header->mheader));
+		}
+	}
+
 	while ((buffer = load_fdesc(fp, i++)) != NULL) {
-		fdesc = parse_fdesc(buffer, fdesc);
+		fdesc = parse_fdesc(buffer, fdesc, header->idesc);
 		if (!header->first) { header->first = fdesc; }
 		free(buffer);
 	}
@@ -566,7 +593,7 @@ int main (int argc, char ** argv) {
 							printf(" unset\n");
 							break;
 						}
-						printf(" @block %d\n", field->memo);
+						printf(" @block %d [%s]\n", field->memo, field->text);
 						break;
 					case DTYPE_CHAR:
 						printf(" \"%s\"\n",  field->text);
