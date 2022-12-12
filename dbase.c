@@ -126,6 +126,7 @@ void free_header (dtable_header * header) {
 
 void dump_header (dtable_header * header) {
 	dtable_fdesc * fdesc = NULL;
+	char type = ' ';
 	printf("VERSION %u %s\n", header->version, header->memo_file ? "with memo" : "without memo");
 	printf("LAST UPDATE %u-%u-%u\n", header->year, header->month, header->day);
 	printf("HEADER SIZE %u\n", header->hsize);
@@ -134,7 +135,9 @@ void dump_header (dtable_header * header) {
 
 	fdesc = header->first;
 	while(fdesc != NULL) {
-		printf("\t%s TYPE %s LEN %u COUNT %u\n", fdesc->name, type_to_str(fdesc->type), fdesc->length, fdesc->count);
+		type = fdesc->type;
+		if (type == DTYPE_FLOAT && fdesc->intable == header->recnum) { type = DTYPE_INTEGER; }
+		printf("\t'%s' %s(%u)\n", fdesc->name, type_to_str(type), fdesc->length, fdesc->count);
 		fdesc = fdesc->next;
 	}
 }
