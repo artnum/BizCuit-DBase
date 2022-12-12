@@ -37,7 +37,7 @@ struct s_dtable {
 	FILE * fp;
 	char * buffer;
 	dtable_header * header;
-	int current_record;
+	long int current_record;
 };
 
 struct s_dtable_header {

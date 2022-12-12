@@ -220,7 +220,6 @@ char * _get_text_field (char * data, uint32_t len, iconv_t idesc) {
 	return to_utf8(data, len, idesc);
 }
 
-
 double _get_float_field (char * data, uint32_t len, int * nodiv) {
 	int is_dec = 0;
 	int is_neg = 0;
@@ -229,7 +228,8 @@ double _get_float_field (char * data, uint32_t len, int * nodiv) {
 	double value = 0;
 	float sub = 0;
 	unsigned int divider = 1;
-
+	
+	*nodiv = 0;
 	for (i = 0; i < len; i++) {
 		if (!is_num(*(data + i))) { continue; }
 		if (*(data + i) == 0x2d && !num_started) { is_neg = 1; continue; }
@@ -244,11 +244,12 @@ double _get_float_field (char * data, uint32_t len, int * nodiv) {
 		sub *= 10;
 		sub += (*(data + i) - 0x30);
 	}
-	if (sub == 0) {
+	if (sub == 0.0) {
 		*nodiv = 1;
 	} else {
 		value += (sub / divider);
 	}
+	
 	return is_neg ? -value : value;
 }
 
@@ -375,6 +376,7 @@ void preflight_record (char * data, dtable_header * header) {
 		if (nodiv) {
 			hcurrent->intable++;
 		}
+		pos += hcurrent->length;
 		hcurrent = hcurrent->next;
 	}
 }
@@ -507,7 +509,7 @@ dtable * open_dtable(char * dbf, char * dbt) {
 
 	table->buffer = load_header(fp);
 	if (!table->buffer) { free(table); fclose(fp); return NULL; }
-	table->current_record = 0;
+	table->current_record = -1;
 	table->header = parse_header(table->buffer);
 	table->fp = fp;
 	free(table->buffer);
@@ -530,6 +532,7 @@ dtable * open_dtable(char * dbf, char * dbt) {
 	}
 
 	/* load fdesc */
+	i = 0;
 	while((table->buffer = load_fdesc(table->fp, i++, table->buffer))) {
 		fdesc = parse_fdesc(table->buffer, fdesc, table->header->idesc);
 		if (!fdesc) { close_dtable(table); return NULL; }
