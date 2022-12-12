@@ -1,12 +1,16 @@
 #ifndef _DBASE_H_
 #define _DBASE_H_
 
+#include <stdint.h>
+#include <time.h>
+#include <iconv.h>
 #include "memo.h"
 
 #define TABLE_HEADER_LENGTH	32
 #define FIELD_DESCRIPTOR_LENGTH	32
 
 #define END_OF_FIELD_DESCRIPTOR	0x0D
+#define RECORD_DELETED	'*'
 
 #define DTYPE_UNKNOWN	0x00
 #define DTYPE_CHAR	0x01
@@ -23,10 +27,18 @@
 #define is_num(c) (((c) >= 0x30 && (c) <= 0x39) || (c) == 0x2e || (c) == 0x2d) 
 #define is_space(x) ((x) == 0x20 || (x) == 0x09 || (x) == 0x0A || (x) == 0x0D)
 
+typedef struct s_dtable dtable;
 typedef struct s_dtable_header dtable_header;
 typedef struct s_dfdesc dtable_fdesc;
 typedef struct s_dfield dtable_field;
 typedef struct s_dreco dtable_record;
+
+struct s_dtable {
+	FILE * fp;
+	char * buffer;
+	dtable_header * header;
+	int current_record;
+};
 
 struct s_dtable_header {
 	uint8_t version;
@@ -85,4 +97,22 @@ struct s_dfield {
 	dtable_field * next;
 };
 
+dtable_fdesc * parse_fdesc (char * data, dtable_fdesc * previous, iconv_t idesc);
+dtable_header * parse_header (char * data); 
+void free_header (dtable_header * header); 
+void dump_header (dtable_header * header); 
+char * load_header (FILE * fp); 
+char * load_fdesc (FILE * fp, uint32_t idx, char * buffer); 
+char * load_record (FILE * fp, uint32_t idx, dtable_header * header, char * buffer); 
+void preflight_record (char * data, dtable_header * header); 
+dtable_record * parse_record (char * data, dtable_header * header); 
+void free_record (dtable_record * record);
+
+dtable * open_dtable(char * dbf, char * dbt); 
+dtable_record * get_record(dtable * table, uint32_t idx);
+dtable_record * get_first_record(dtable * table); 
+dtable_record * get_last_record(dtable * table);
+dtable_record * get_next_record(dtable * table);
+dtable_record * get_previous_record(dtable * table); 
+void close_dtable(dtable * table); 
 #endif

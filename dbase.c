@@ -9,15 +9,13 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdint.h>
-#include <iconv.h>
-#include <time.h>
 
 #include "dbase.h"
 
 #define TABLE_FILE_HEADER_LEN       68
 #define TABLE_FILE_FIELD_DESC_LEN   48
 #define TABLE_FILE_FD_TERM          0x0D
+
 const char MAP_TYPE[][2] = {
 	{ 'Y', DTYPE_CURRENCY },
 	{ 'I', DTYPE_INTEGER },
@@ -122,7 +120,7 @@ void free_header (dtable_header * header) {
 	if (header->memo) {
 		fclose(header->memo);
 	}
-	iconv_close(header->idesc);
+	if (header->idesc != (iconv_t)-1) { iconv_close(header->idesc); }
 	free(header);
 }
 
@@ -155,12 +153,16 @@ char * load_header (FILE * fp) {
 	return header;
 }
 
-char * load_fdesc (FILE * fp, uint32_t idx) {
+char * load_fdesc (FILE * fp, uint32_t idx, char * buffer) {
 	char * fdesc = NULL;
 	char name[12];
 	fseek(fp, (long)((idx * FIELD_DESCRIPTOR_LENGTH) + TABLE_HEADER_LENGTH), SEEK_SET);
 
-	fdesc = calloc(FIELD_DESCRIPTOR_LENGTH, 1);
+	if (buffer != NULL) {
+		fdesc = buffer;
+	} else {
+		fdesc = calloc(FIELD_DESCRIPTOR_LENGTH, 1);
+	}
 	if (!fdesc) { return NULL; }
 	if (fread(fdesc, 1, FIELD_DESCRIPTOR_LENGTH, fp) != FIELD_DESCRIPTOR_LENGTH) {
 		free(fdesc);
@@ -386,8 +388,9 @@ dtable_record * parse_record (char * data, dtable_header * header) {
 	int nodiv = 0;
 
 	record = calloc(1, sizeof(*record));
+	if (!record) { return NULL; }
 
-	record->deleted = *data == '*' ? 1 : 0;
+	record->deleted = *data == RECORD_DELETED ? 1 : 0;
 
 	while(hcurrent) {
 		nodiv = 0;
@@ -456,109 +459,98 @@ void free_record (dtable_record * record) {
 	free(record);
 }
 
-int main (int argc, char ** argv) {
-	FILE *fp = NULL;
-	dtable_header * header = NULL;
-	dtable_fdesc * fdesc = NULL;
+dtable_record * get_record(dtable * table, uint32_t idx) {
 	dtable_record * record = NULL;
-	dtable_field * field = NULL;
-	char * buffer = NULL;
+
+	if (table == NULL) { return NULL; }
+	if (idx >= table->header->recnum) { return NULL; }
+	table->buffer = load_record(table->fp, idx, table->header, table->buffer);
+	if (!table->buffer) { return NULL; }
+	record = parse_record(table->buffer, table->header);
+	if (record) {
+		table->current_record = idx;
+		record->index = idx;
+	}
+	return record;
+}
+
+dtable_record * get_first_record(dtable * table) {
+	return get_record(table, 0);
+}
+
+dtable_record * get_last_record(dtable * table) {
+	if (!table) { return NULL; }
+	return get_record(table, table->header->recnum - 1);
+}
+
+dtable_record * get_next_record(dtable * table) {
+	if (!table) { return NULL; }
+	return get_record(table, ++(table->current_record));
+}
+
+dtable_record * get_previous_record(dtable * table) {
+	if (!table) { return NULL; }
+	return get_record(table, --(table->current_record));
+}
+
+dtable * open_dtable(char * dbf, char * dbt) {
+	dtable * table = NULL;
+	dtable_fdesc * fdesc = NULL;
+	FILE * fp = NULL;
 	uint32_t i = 0;
-	int j = 0;
-	char datebuff[11];
 
-	if (argc < 2) { return 0; }
+	table = calloc(1, sizeof(*table));
+	if (!table) { return NULL; }
 
-	fp = fopen(argv[1], "r");
-	if (fp == NULL) { return 0; }
+	fp = fopen(dbf, "r");
+	if (!fp) { free(table); return NULL; }
 
-	buffer = load_header(fp);
-	header = parse_header(buffer);
-	free(buffer);
+	table->buffer = load_header(fp);
+	if (!table->buffer) { free(table); fclose(fp); return NULL; }
+	table->current_record = 0;
+	table->header = parse_header(table->buffer);
+	table->fp = fp;
+	free(table->buffer);
+	table->buffer = NULL;
 
-	header->idesc = iconv_open("UTF-8", "ISO-8859-1");
-	if (header->memo_file && argc > 2) {
-		header->memo = fopen(argv[2], "r");
-		if (header->memo) {
-			memo_get_header(header->memo, &(header->mheader));
-		}
-	}
-
-	while ((buffer = load_fdesc(fp, i++)) != NULL) {
-		fdesc = parse_fdesc(buffer, fdesc, header->idesc);
-		if (!header->first) { header->first = fdesc; }
-		free(buffer);
-	}
-	dump_header(header);
-
-	buffer = NULL;
-	for (j = 0; j < 2; j++) {	
-		for (i = 0; i < header->recnum; i++) {
-			
-			buffer = load_record(fp, i, header, buffer);
-			if (j == 0) {
-				preflight_record(buffer, header);
-				continue;
-			}
-			record = parse_record(buffer, header);
-			record->index = i;
-
-			field = record->first;
-
-			printf("%cRECORD <%d>\n", record->deleted ? '-' : '+', record->index);
-			while (field) {
-				printf("\t%s:", field->descriptor->name);
-				switch (field->descriptor->type) {
-					case DTYPE_DATE:
-						if (field->not_init) {
-							printf(" unset\n");
-							break;
-						}
-						strftime(datebuff, 11, "%Y-%m-%d", &(field->date));
-						printf(" %s\n", datebuff);
-						break;
-					case DTYPE_INTEGER:
-						printf(" %ld\n", field->integer);
-						break;
-					case DTYPE_FLOAT:
-						printf(" %.4f\n", field->number);
-						break;
-					case DTYPE_MEMO:
-						if (field->not_init) {
-							printf(" unset\n");
-							break;
-						}
-						printf(" @block %d [%s]\n", field->memo, field->text);
-						break;
-					case DTYPE_CHAR:
-						printf(" \"%s\"\n",  field->text);
-						break;
-					case DTYPE_BOOL:
-						if (field->not_init) {
-							printf(" unset\n");
-							break;
-						}
-						printf(" %s\n",  field->boolean ? "true" : "false");
-						break;
-					default: 
-						printf(" ?\n");
-						break;
-				}
-				field = field->next;
-			}
-			free_record(record);
-		}
-	}
-	free(buffer);
-	fdesc = header->first;
-	while (fdesc) {
-		if (fdesc->intable == header->recsize) {
-			printf("%s is INTABLE\n", fdesc->name);
-		}
-		fdesc = fdesc->next;
-	}
+	if (!table->header) { close_dtable(table); return NULL; }
 	
-	free_header(header);
+	table->header->idesc = iconv_open("UTF-8", "ISO-8859-1");
+	if (table->header->idesc == (iconv_t)-1) {
+		close_dtable(table);
+		return NULL;		
+	}
+	/* if fail open dbt, we dont close db, just work without it */
+	if (table->header->memo_file && dbt) {
+		fp = fopen(dbt, "r");
+		if (fp) {
+			table->header->memo = fp;
+			memo_get_header(table->header->memo, &(table->header->mheader));
+		}
+	}
 
-	fclose(fp);
+	/* load fdesc */
+	while((table->buffer = load_fdesc(table->fp, i++, table->buffer))) {
+		fdesc = parse_fdesc(table->buffer, fdesc, table->header->idesc);
+		if (!fdesc) { close_dtable(table); return NULL; }
+		if (!table->header->first) { table->header->first = fdesc; }
+	}
+	free(table->buffer);
+	table->buffer = NULL;
+
+	/* preflight dtable */
+	for(i = 0; i < table->header->recnum; i++) {
+		table->buffer = load_record(table->fp, i, table->header, table->buffer);
+		if (!table->buffer) { break; }
+		preflight_record(table->buffer, table->header);
+	}
+
+	return table;
+}
+
+void close_dtable(dtable * table) {
+	if (table->fp) { fclose(table->fp); }
+	if (table->buffer) { free(table->buffer); }
+	free_header(table->header);
+	free(table);
 }

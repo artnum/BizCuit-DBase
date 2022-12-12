@@ -1,9 +1,12 @@
 Compile
 -------
 
-gcc -Wextra -pedantic dbase.c -o dbase
+gcc -Wextra -pedantic dbase.c memo.c test.c -o dbase
 
 Run
 ---
+with memo fields :
+./dbase /path/to/dbf/file.dbf /path/to/dbf/file.fpt
 
-./dbase /path/to/dbf/file.dbf
+without memo fields :
+./dbase /path/to/dbf/file.dbf 
