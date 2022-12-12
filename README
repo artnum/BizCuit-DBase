@@ -1,12 +1,27 @@
 Compile
 -------
 
-gcc -Wextra -pedantic dbase.c memo.c test.c -o dbase
+$ gcc -Wextra -pedantic dbase.c memo.c test.c -o dbase
+
+# Winbiz export
+
+$ gcc -ggdb -rdynamic winbiz.c account.c dbase.c memo.c  -ldl -o winbiz 
+
+
+# Plugin
+
+$ gcc winbiz-bexio.c -c -fPIC -o winbiz-bexio.o 
+$ gcc -ggdb -shared winbiz-bexio.o -o winbiz-bexio.so -ljansson -lcurl
 
 Run
 ---
 with memo fields :
-./dbase /path/to/dbf/file.dbf /path/to/dbf/file.fpt
+$ ./dbase /path/to/dbf/file.dbf /path/to/dbf/file.fpt
 
 without memo fields :
-./dbase /path/to/dbf/file.dbf 
+$ ./dbase /path/to/dbf/file.dbf 
+
+
+# Winbiz export
+
+$ winbiz ../winbiz/data2/DAT/D7/2019/ ./winbiz-bexio.so 

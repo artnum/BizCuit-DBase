@@ -77,8 +77,6 @@ struct s_dreco {
 	uint32_t index;
 	uint8_t deleted;
 	dtable_field * first;
-	dtable_record * next;
-	dtable_record * previous;
 };
 
 struct s_dfield {
@@ -114,5 +112,6 @@ dtable_record * get_first_record(dtable * table);
 dtable_record * get_last_record(dtable * table);
 dtable_record * get_next_record(dtable * table);
 dtable_record * get_previous_record(dtable * table); 
+dtable_field * get_field(dtable_record * record, char * name); 
 void close_dtable(dtable * table); 
 #endif

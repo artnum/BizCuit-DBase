@@ -237,12 +237,12 @@ double _get_float_field (char * data, uint32_t len, int * nodiv) {
 		if (*(data + i) == 0x2e) { is_dec = 1; continue; }
 		if (!is_dec) {
 			value *= 10;
-			value += (*(data + i) - 0x30);
+			value += (double)((*(data + i) - 0x30) & 0xFF);
 			continue;
 		}
 		divider *= 10;
 		sub *= 10;
-		sub += (*(data + i) - 0x30);
+		sub += (float)((*(data + i) - 0x30) & 0xFF);
 	}
 	if (sub == 0.0) {
 		*nodiv = 1;
@@ -417,6 +417,7 @@ dtable_record * parse_record (char * data, dtable_header * header) {
 				break;
 			case DTYPE_INTEGER:
 				fcurrent->integer = _get_int_field(data + pos, hcurrent->length);
+				fcurrent->number = (double)fcurrent->integer;
 				break;
 			case DTYPE_FLOAT:
 				if (hcurrent->intable == header->recnum) {
@@ -474,6 +475,19 @@ dtable_record * get_record(dtable * table, uint32_t idx) {
 		record->index = idx;
 	}
 	return record;
+}
+
+dtable_field * get_field(dtable_record * record, char * name) {
+	dtable_field * field = NULL;
+	if (!record || !name) { return NULL; }
+	field = record->first;
+
+	while(field) {
+		if (strcmp(field->descriptor->name, name) == 0) { return field; }
+		field = field->next;
+	}
+
+	return NULL;
 }
 
 dtable_record * get_first_record(dtable * table) {
