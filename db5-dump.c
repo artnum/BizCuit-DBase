@@ -16,9 +16,9 @@ int main (int argc, char ** argv) {
 
 	if (argc < 2) { return 0; }
 	if (argc == 2) {
-		table =	open_dtable(argv[1], NULL);
+		table =	open_dtable(argv[1], NULL, 0);
 	} else {
-		table = open_dtable(argv[1], argv[2]);
+		table = open_dtable(argv[1], argv[2], 0);
 	}
 	if (!table) { return 0; }
 	dump_header(table->header);

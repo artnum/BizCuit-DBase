@@ -1,24 +1,24 @@
 CC=gcc
-CFLAGS=
-LDFLAGS=
+CFLAGS=-ggdb
+LDFLAGS=-ggdb
 EXEC=db5-dump db5-head
 
 all: $(EXEC)
 
 db5-head: db5-head.o libdbase5.so
-	$(CC) db5-head.o libdbase5.so -o db5-head
+	$(CC) $(LDFLAGS) db5-head.o libdbase5.so -o db5-head
 
 db5-dump: db5-dump.o libdbase5.so
-	$(CC) db5-dump.o libdbase5.so -o db5-dump
+	$(CC) $(LDFLAGS) db5-dump.o libdbase5.so -o db5-dump
 
 db5-dump.o: db5-dump.c
-	$(CC) db5-dump.c -c -o db5-dump.o
+	$(CC) $(CFLAGS) db5-dump.c -c -o db5-dump.o
 
 db5-head.o: db5-head.c
-	$(CC) db5-head.c -c -o db5-head.o
+	$(CC) $(CFLAGS) db5-head.c -c -o db5-head.o
 
 libdbase5.so: dbase.c memo.c cache.c
-	$(CC) dbase.c memo.c cache.c -fPIC -shared -o libdbase5.so
+	$(CC) $(CFLAGS) dbase.c memo.c cache.c -fPIC -shared -o libdbase5.so
 
 install: libdbase5.so test head
 	cp libdbase5.so /usr/local/lib/

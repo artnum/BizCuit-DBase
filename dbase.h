@@ -26,6 +26,8 @@
 #define DTYPE_MEMO	0x08
 #define DTYPE_DOUBLE	0x09
 
+#define DTABLE_OPT_NO_DELETE	0x01
+
 #define is_int(c) (((c) >= 0x30 && (c) <= 0x39)) 
 #define is_num(c) (((c) >= 0x30 && (c) <= 0x39) || (c) == 0x2e || (c) == 0x2d) 
 #define is_space(x) ((x) == 0x20 || (x) == 0x09 || (x) == 0x0A || (x) == 0x0D)
@@ -44,6 +46,7 @@ struct s_dtable {
 	dtable_header * header;
 	long int current_record;
 	dbase_cache * cache;
+	uint8_t options;
 };
 
 struct s_dtable_header {
@@ -113,10 +116,10 @@ char * load_header (FILE * fp);
 char * load_fdesc (FILE * fp, uint32_t idx, char * buffer); 
 char * load_record (FILE * fp, uint32_t idx, dtable_header * header, char * buffer); 
 void preflight_record (char * data, dtable_header * header); 
-dtable_record * parse_record (char * data, dtable_header * header); 
+dtable_record * parse_record (dtable * table);
 void free_record (dtable_record * record);
 
-dtable * open_dtable(const char * dbf, const char * dbt); 
+dtable * open_dtable(const char * dbf, const char * dbt, uint8_t options); 
 dtable_record * get_record(dtable * table, uint32_t idx);
 dtable_record * get_first_record(dtable * table); 
 dtable_record * get_last_record(dtable * table);

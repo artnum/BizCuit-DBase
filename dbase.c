@@ -384,18 +384,31 @@ void preflight_record (char * data, dtable_header * header) {
 	}
 }
 
-dtable_record * parse_record (char * data, dtable_header * header) {
-	dtable_fdesc * hcurrent = header->first;
+dtable_record * parse_record (dtable * table) {
+	dtable_header * header = NULL;
+	dtable_fdesc * hcurrent = NULL;
 	dtable_record * record = NULL;
 	dtable_field * fcurrent = NULL;
 	dtable_field * fprev = NULL;
+	uint8_t deleted = 0;
 	uint32_t pos = 1;
 	int nodiv = 0;
+	char * data = NULL;
 
+	if (!table) { return NULL; }
+	if (!table->header) { return NULL; }
+	header = table->header;
+	if (!table->buffer) { return NULL; }
+	data = table->buffer;
+	if(!header->first) { return NULL; }
+	hcurrent = header->first;
+
+	deleted = *data == RECORD_DELETED ? 1 : 0;
+	if ((table->options & DTABLE_OPT_NO_DELETE) && deleted) { return NULL; }
+	
 	record = calloc(1, sizeof(*record));
 	if (!record) { return NULL; }
-
-	record->deleted = *data == RECORD_DELETED ? 1 : 0;
+	record->deleted = deleted;
 
 	while(hcurrent) {
 		nodiv = 0;
@@ -487,7 +500,7 @@ dtable_record * get_record(dtable * table, uint32_t idx) {
 	if (idx >= table->header->recnum) { return NULL; }
 	table->buffer = load_record(table->fp, idx, table->header, table->buffer);
 	if (!table->buffer) { return NULL; }
-	record = parse_record(table->buffer, table->header);
+	record = parse_record(table);
 	if (record) {
 		table->current_record = idx;
 		record->index = idx;
@@ -604,7 +617,7 @@ dtable_record * get_previous_record(dtable * table) {
 	return get_record(table, --(table->current_record));
 }
 
-dtable * open_dtable(const char * dbf, const char * dbt) {
+dtable * open_dtable(const char * dbf, const char * dbt, uint8_t options) {
 	dtable * table = NULL;
 	dtable_fdesc * fdesc = NULL;
 	FILE * fp = NULL;
@@ -614,6 +627,8 @@ dtable * open_dtable(const char * dbf, const char * dbt) {
 
 	table = calloc(1, sizeof(*table));
 	if (!table) { return NULL; }
+	
+	table->options = options;
 
 	fp = fopen(dbf, "r");
 	if (!fp) { free(table); return NULL; }

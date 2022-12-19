@@ -25,7 +25,7 @@ int main (int argc, char ** argv) {
 	while ((f = readdir(dh)) != NULL) {
 		sprintf(path, "%s/%s", argv[1], f->d_name);
 		if (!is_dbf(path)) { continue; }
-		table = open_dtable(path, NULL);
+		table = open_dtable(path, NULL, 0);
 		if (!table) { continue; }
 		if (table->header->recnum == 0) { close_dtable(table); continue; }
 		printf("### %s\n", f->d_name);
