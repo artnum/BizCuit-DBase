@@ -6,7 +6,8 @@
 #include <iconv.h>
 #include "memo.h"
 
-#define TABLE_CACHE_SIZE	100
+#define MAX_TABLE_CACHE_SIZE	1048576	 /* 1mo */
+#define MAX_BLOCK_CACHE_SIZE	1024 /* 1ko */
 
 #define TABLE_HEADER_LENGTH	32
 #define FIELD_DESCRIPTOR_LENGTH	32
@@ -79,6 +80,7 @@ struct s_dfdesc {
 
 struct s_dreco {
 	dtable_fdesc * descriptor;
+	size_t data_block_size; /* size of all datablock */
 	uint32_t index;
 	uint8_t deleted;
 	uint8_t cached;
@@ -87,6 +89,7 @@ struct s_dreco {
 };
 
 struct s_dfield {
+	size_t data_block_size;
 	dtable_fdesc * descriptor;
 	
 	char * text;

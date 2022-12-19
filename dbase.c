@@ -412,6 +412,8 @@ dtable_record * parse_record (char * data, dtable_header * header) {
 				if(!fcurrent->not_init && header->memo) {
 					fcurrent->bmemo = memo_get_block(header->memo, fcurrent->memo, &(header->mheader));
 					fcurrent->text = to_utf8(fcurrent->bmemo->data, fcurrent->bmemo->length, header->idesc);
+					fcurrent->data_block_size = fcurrent->bmemo->length + strlen(fcurrent->text);
+					record->data_block_size += fcurrent->data_block_size;
 				}
 
 				break;
@@ -435,6 +437,8 @@ dtable_record * parse_record (char * data, dtable_header * header) {
 				break;
 			case DTYPE_CHAR:
 				fcurrent->text = _get_text_field(data + pos, hcurrent->length, header->idesc);
+				fcurrent->data_block_size = strlen(fcurrent->text);
+				record->data_block_size += fcurrent->data_block_size;
 				break;	
 			case DTYPE_BOOL:
 				fcurrent->boolean = _get_bool_field(data + pos);
@@ -605,6 +609,8 @@ dtable * open_dtable(const char * dbf, const char * dbt) {
 	dtable_fdesc * fdesc = NULL;
 	FILE * fp = NULL;
 	uint32_t i = 0;
+	int cache_size = 0;
+	int field_count = 0;
 
 	table = calloc(1, sizeof(*table));
 	if (!table) { return NULL; }
@@ -643,6 +649,7 @@ dtable * open_dtable(const char * dbf, const char * dbt) {
 		if (!fdesc) { close_dtable(table); return NULL; }
 		if (!table->header->first) { table->header->first = fdesc; }
 	}
+	field_count = i;
 	free(table->buffer);
 	table->buffer = NULL;
 
@@ -654,7 +661,10 @@ dtable * open_dtable(const char * dbf, const char * dbt) {
 	}
 
 #ifdef DBASE_NO_CACHE
-	table->cache = cache_init(TABLE_CACHE_SIZE);
+	/* number of records don't take into account _text_ and _bmemo_ size as it is hard to know
+	 * beforehand */
+	cache_size = MAX_TABLE_CACHE_SIZE / (sizeof(dtable_record) + sizeof(dtable_field) * field_count);
+	table->cache = cache_init(cache_size, MAX_BLOCK_CACHE_SIZE);
 #endif
 
 	return table;

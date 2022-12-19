@@ -1,7 +1,7 @@
 #include "dbase.h"
 #include "cache.h"
 
-dbase_cache * cache_init (size_t cache_size) {
+dbase_cache * cache_init (size_t cache_size, size_t max_block_size) {
 	dbase_cache * cache = NULL;
 
 	cache = calloc(1, sizeof(*cache));
@@ -9,7 +9,8 @@ dbase_cache * cache_init (size_t cache_size) {
 
 	cache->records = calloc(cache_size, sizeof(*(cache->records)));
 	if (cache->records == NULL) { free(cache); return NULL; }
-	
+
+	cache->max_block_size = max_block_size;	
 	cache->size = cache_size;
 	cache->used = 0;
 
@@ -69,6 +70,9 @@ void cache_add_record (dbase_cache * cache, uint32_t idx, dtable_record * record
 	int added = 0;
 
 	if (!cache) { return; }
+	if (cache->max_block_size > 0) {
+		if (record->data_block_size > cache->max_block_size) { return; }
+	}
 
 	cache_get_space(cache);
 	for (i = 0; i < cache->size; i++) {

@@ -18,6 +18,7 @@ struct s_dbase_cache_record {
 struct s_dbase_cache {
 	size_t size;
 	size_t used;
+	size_t max_block_size;
 	dbase_cache_record * records;
 };
 
@@ -25,6 +26,6 @@ dtable_record * cache_get_record(dbase_cache * cache, uint32_t idx);
 void cache_add_record (dbase_cache * cache, uint32_t idx, dtable_record * record); 
 void cache_get_space (dbase_cache * cache);
 void cache_destroy (dbase_cache * cache);
-dbase_cache * cache_init (size_t cache_size);
+dbase_cache * cache_init (size_t cache_size, size_t max_block_size);
 
 #endif
