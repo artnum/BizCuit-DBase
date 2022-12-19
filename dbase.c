@@ -137,7 +137,7 @@ void dump_header (dtable_header * header) {
 	while(fdesc != NULL) {
 		type = fdesc->type;
 		if (type == DTYPE_FLOAT && fdesc->intable == header->recnum) { type = DTYPE_INTEGER; }
-		printf("\t'%s' %s(%u)\n", fdesc->name, type_to_str(type), fdesc->length, fdesc->count);
+		printf("\t'%s' %s(%u)\n", fdesc->name, type_to_str(type), fdesc->length);
 		fdesc = fdesc->next;
 	}
 }
@@ -453,6 +453,12 @@ dtable_record * parse_record (char * data, dtable_header * header) {
 void free_record (dtable_record * record) {
 	dtable_field * c = NULL;
 	dtable_field * tmp = NULL;
+	
+	if (!record) { return; }
+
+#ifdef DBASE_NO_CACHE
+	if (record->cached) { record->freed = 1; return; }
+#endif
 
 	c = record->first;
 	while (c) {
@@ -468,6 +474,11 @@ void free_record (dtable_record * record) {
 dtable_record * get_record(dtable * table, uint32_t idx) {
 	dtable_record * record = NULL;
 
+#ifdef DBASE_NO_CACHE
+	record = cache_get_record(table->cache, idx);
+	if (record) { return record; }
+#endif
+
 	if (table == NULL) { return NULL; }
 	if (idx >= table->header->recnum) { return NULL; }
 	table->buffer = load_record(table->fp, idx, table->header, table->buffer);
@@ -477,10 +488,15 @@ dtable_record * get_record(dtable * table, uint32_t idx) {
 		table->current_record = idx;
 		record->index = idx;
 	}
+
+#ifdef DBASE_NO_CACHE
+	cache_add_record(table->cache, idx, record);
+#endif
+
 	return record;
 }
 
-dtable_field * get_field(dtable_record * record, char * name) {
+dtable_field * get_field(dtable_record * record, const char * name) {
 	dtable_field * field = NULL;
 	if (!record || !name) { return NULL; }
 	field = record->first;
@@ -491,6 +507,78 @@ dtable_field * get_field(dtable_record * record, char * name) {
 	}
 
 	return NULL;
+}
+
+long int get_int_field(dtable_record * record, const char * name) {
+	dtable_field * field = NULL;
+	field = get_field(record, name);
+	if (!field) { return 0; }
+	return coerce_int(field);
+}
+
+long int coerce_int (dtable_field * field) {
+	if (!field) { return 0; }
+	switch(field->descriptor->type) {
+		default: return 0;
+		case DTYPE_INTEGER: return field->integer;
+		case DTYPE_CURRENCY:
+		case DTYPE_DOUBLE:
+		case DTYPE_FLOAT: return (long int)field->number;
+		case DTYPE_BOOL: return (long int)field->boolean;
+		case DTYPE_DATETIME:
+		case DTYPE_DATE: return (long int)mktime(&(field->date));
+		case DTYPE_MEMO:
+		case DTYPE_CHAR:
+				 return _get_int_field(field->text, strlen(field->text));
+	}
+}
+
+char * get_str_field(dtable_record * record, const char * name) {
+	dtable_field * field = NULL;
+	field = get_field(record, name);
+	if (!field) { return 0; }
+	return coerce_str(field);
+}
+
+char * coerce_str (dtable_field * field) {
+	int size = 0;
+	if (!field) { return NULL; }
+	if (field->text) { return field->text; } // already coerced to str
+	switch(field->descriptor->type) {
+		default: return NULL;
+		case DTYPE_INTEGER:
+			size = snprintf(NULL, 0, "%ld\n", field->integer);
+			field->text = calloc(size, sizeof(*(field->text)));
+			if (!field->text) { return NULL; }
+			snprintf(field->text, size, "%ld", field->integer);
+			return field->text;
+		case DTYPE_FLOAT:
+		case DTYPE_DOUBLE:
+		case DTYPE_CURRENCY:
+			size = snprintf(NULL, 0, "%f\n", field->number);
+			field->text = calloc(size, sizeof(*(field->text)));
+			if (!field->text) { return NULL; }
+			snprintf(field->text, size, "%f", field->number);
+			return field->text;
+		case DTYPE_MEMO:
+		case DTYPE_CHAR:
+			return field->text;
+		case DTYPE_BOOL:
+			field->text = calloc(2, sizeof(*(field->text)));
+			if (!field->text) { return NULL; }
+			field->text[0] = field->boolean ? '1' : '0';
+			return field->text;
+		case DTYPE_DATE:
+			field->text = calloc(11, sizeof(*(field->text)));
+			if (!field->text) { return NULL; }
+			strftime(field->text, 11, "%Y-%m-%d", &(field->date));
+			return field->text;
+		case DTYPE_DATETIME:
+			field->text = calloc(31, sizeof(*(field->text)));
+			if (!field->text) { return NULL; }
+			strftime(field->text, 31, "%Y-%m-%d %H:%m:%S", &(field->date));
+			return field->text;
+	}
 }
 
 dtable_record * get_first_record(dtable * table) {
@@ -512,7 +600,7 @@ dtable_record * get_previous_record(dtable * table) {
 	return get_record(table, --(table->current_record));
 }
 
-dtable * open_dtable(char * dbf, char * dbt) {
+dtable * open_dtable(const char * dbf, const char * dbt) {
 	dtable * table = NULL;
 	dtable_fdesc * fdesc = NULL;
 	FILE * fp = NULL;
@@ -565,6 +653,10 @@ dtable * open_dtable(char * dbf, char * dbt) {
 		preflight_record(table->buffer, table->header);
 	}
 
+#ifdef DBASE_NO_CACHE
+	table->cache = cache_init(TABLE_CACHE_SIZE);
+#endif
+
 	return table;
 }
 
@@ -572,5 +664,10 @@ void close_dtable(dtable * table) {
 	if (table->fp) { fclose(table->fp); }
 	if (table->buffer) { free(table->buffer); }
 	free_header(table->header);
+
+#ifdef DBASE_NO_CACHE
+	cache_destroy(table->cache);
+#endif
+
 	free(table);
 }

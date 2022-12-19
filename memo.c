@@ -22,7 +22,7 @@ void memo_get_header (FILE * fp, memo_header * header) {
 memo_block * memo_get_block (FILE * fp, uint32_t index, memo_header * header) {
 	char data[8] = { 0x00 };
 	memo_block * block = NULL;
-	int i = 0;
+	
 	block = calloc(1, sizeof(*block));
 
 	fseek(fp, header->bs * index, SEEK_SET);

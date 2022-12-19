@@ -6,6 +6,8 @@
 #include <iconv.h>
 #include "memo.h"
 
+#define TABLE_CACHE_SIZE	100
+
 #define TABLE_HEADER_LENGTH	32
 #define FIELD_DESCRIPTOR_LENGTH	32
 
@@ -33,11 +35,14 @@ typedef struct s_dfdesc dtable_fdesc;
 typedef struct s_dfield dtable_field;
 typedef struct s_dreco dtable_record;
 
+#include "cache.h"
+
 struct s_dtable {
 	FILE * fp;
 	char * buffer;
 	dtable_header * header;
 	long int current_record;
+	dbase_cache * cache;
 };
 
 struct s_dtable_header {
@@ -76,6 +81,8 @@ struct s_dreco {
 	dtable_fdesc * descriptor;
 	uint32_t index;
 	uint8_t deleted;
+	uint8_t cached;
+	uint8_t freed;
 	dtable_field * first;
 };
 
@@ -106,12 +113,16 @@ void preflight_record (char * data, dtable_header * header);
 dtable_record * parse_record (char * data, dtable_header * header); 
 void free_record (dtable_record * record);
 
-dtable * open_dtable(char * dbf, char * dbt); 
+dtable * open_dtable(const char * dbf, const char * dbt); 
 dtable_record * get_record(dtable * table, uint32_t idx);
 dtable_record * get_first_record(dtable * table); 
 dtable_record * get_last_record(dtable * table);
 dtable_record * get_next_record(dtable * table);
 dtable_record * get_previous_record(dtable * table); 
-dtable_field * get_field(dtable_record * record, char * name); 
+dtable_field * get_field(dtable_record * record, const char * name); 
+long int get_int_field(dtable_record * record, const char * name);
+long int coerce_int(dtable_field * field);
+char * get_str_field(dtable_record * record, const char * name);
+char * coerce_str(dtable_field * field);
 void close_dtable(dtable * table); 
 #endif
