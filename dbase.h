@@ -26,7 +26,9 @@
 #define DTYPE_MEMO	0x08
 #define DTYPE_DOUBLE	0x09
 
-#define DTABLE_OPT_NO_DELETE	0x01
+#define DTABLE_OPT_NO_DELETE		0x01
+#define DTABLE_OPT_NO_PREFLIGHT		0x02
+#define DTABLE_OPT_NO_CHAR_TO_INT	0x04
 
 #define is_int(c) (((c) >= 0x30 && (c) <= 0x39)) 
 #define is_num(c) (((c) >= 0x30 && (c) <= 0x39) || (c) == 0x2e || (c) == 0x2d) 
@@ -75,9 +77,11 @@ struct s_dfdesc {
 	uint8_t length;
 	uint8_t count;
 	uint8_t setfield;
-	
+
+	/* filled by preflight */	
 	uint32_t intable;
-	
+	size_t max_length;
+
 	dtable_fdesc * next;
 };
 
@@ -115,7 +119,7 @@ void dump_header (dtable_header * header);
 char * load_header (FILE * fp); 
 char * load_fdesc (FILE * fp, uint32_t idx, char * buffer); 
 char * load_record (FILE * fp, uint32_t idx, dtable_header * header, char * buffer); 
-void preflight_record (char * data, dtable_header * header); 
+void preflight_record (char * data, dtable_header * header, uint8_t options); 
 dtable_record * parse_record (dtable * table);
 void free_record (dtable_record * record);
 
@@ -126,6 +130,7 @@ dtable_record * get_last_record(dtable * table);
 dtable_record * get_next_record(dtable * table);
 dtable_record * get_previous_record(dtable * table); 
 dtable_field * get_field(dtable_record * record, const char * name); 
+dtable_field * get_field_by_idx (dtable_record * record, uint32_t idx); // 0 based 
 long int get_int_field(dtable_record * record, const char * name);
 long int coerce_int(dtable_field * field);
 char * get_str_field(dtable_record * record, const char * name);

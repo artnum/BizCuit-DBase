@@ -137,7 +137,7 @@ void dump_header (dtable_header * header) {
 	while(fdesc != NULL) {
 		type = fdesc->type;
 		if (type == DTYPE_FLOAT && fdesc->intable == header->recnum) { type = DTYPE_INTEGER; }
-		printf("\t'%s' %s(%u)\n", fdesc->name, type_to_str(type), fdesc->length);
+		printf("\t'%s' %s(%u:%d)\n", fdesc->name, type_to_str(type), fdesc->length, fdesc->max_length);
 		fdesc = fdesc->next;
 	}
 }
@@ -224,54 +224,38 @@ char * _get_text_field (char * data, uint32_t len, iconv_t idesc) {
 }
 
 double _get_float_field (char * data, uint32_t len, int * nodiv) {
-	int is_dec = 0;
-	int is_neg = 0;
-	int num_started = 0;
-	uint32_t i = 0;
 	double value = 0;
-	float sub = 0;
-	unsigned int divider = 1;
+	char * endptr;
+	char * str = NULL;
 	
-	*nodiv = 0;
-	for (i = 0; i < len; i++) {
-		if (!is_num(*(data + i))) { continue; }
-		if (*(data + i) == 0x2d && !num_started) { is_neg = 1; continue; }
-		num_started = 1;
-		if (*(data + i) == 0x2e) { is_dec = 1; continue; }
-		if (!is_dec) {
-			value *= 10;
-			value += (double)((*(data + i) - 0x30) & 0xFF);
-			continue;
-		}
-		divider *= 10;
-		sub *= 10;
-		sub += (float)((*(data + i) - 0x30) & 0xFF);
-	}
-	if (sub == 0.0) {
-		*nodiv = 1;
-	} else {
-		value += (sub / divider);
-	}
+	str = strndup(data, len);
+	if (str == NULL) { return value; }
+
 	
-	return is_neg ? -value : value;
+	value = strtod(str, &endptr);
+	if (endptr == NULL) { value = 0; }
+	if (endptr < str + len) { value = 0; }
+	free(str);
+
+	*nodiv = ( value - (int)value == 0 );
+
+	return value;
 }
 
 long int _get_int_field (char * data, uint32_t len) {
-	int is_neg = 0;
-	int num_started = 0;
-	uint32_t i = 0;
 	long int value = 0;
+	char * str = NULL;
+	char * endptr = NULL;
+       
+	str = strndup(data, len);
+	if (str == NULL) { return value; }
 
-	for (i = 0; i < len; i++) {
-		if (!is_num(*(data + i))) { continue; }
-		if (*(data + i) == 0x2d && !num_started) { is_neg = 1; continue; }
-		if (*(data + i) == 0x2e) { break; }
-		num_started = 1;
-		value *= 10;
-		value += (*(data + i) - 0x30);
-	}
-	return is_neg ? -value : value;
+	value = strtol(str, &endptr, 10);
+	if (endptr == NULL) { value = 0; }
+	if (endptr < str + len) { value = 0; }
+	free(str);
 
+	return value;
 }
 
 int _get_bool_field (char * data) {
@@ -364,20 +348,38 @@ struct tm _get_datetime_field (char * data, uint32_t len) {
 /* dbase number can be int or float, this allow, by looking at the data to
  * distinguish them
  */
-void preflight_record (char * data, dtable_header * header) {
+void preflight_record (char * data, dtable_header * header, uint8_t options) {
 	int nodiv = 0;
 	uint32_t pos = 1;
+	char * str = NULL;
+	size_t length = 0;
 	dtable_fdesc * hcurrent = header->first;
 
 	while (hcurrent) {
-		if (hcurrent->type != DTYPE_FLOAT) { 
-			pos += hcurrent->length; 
-			hcurrent = hcurrent->next;
-			continue;
-		}
-		_get_float_field(data + pos, hcurrent->length, &nodiv);
-		if (nodiv) {
-			hcurrent->intable++;
+		switch(hcurrent->type) {
+			default: break;	
+			case DTYPE_FLOAT:
+				_get_float_field(data + pos, hcurrent->length, &nodiv);
+				if (nodiv) {
+					hcurrent->intable++;
+				}
+				break;
+			case DTYPE_MEMO:
+				break;
+			case DTYPE_CHAR:
+				str = _get_text_field(data + pos, hcurrent->length, header->idesc);
+				length = strlen(str);
+				if (hcurrent->max_length < length) { hcurrent->max_length = length; }
+
+				if (options & DTABLE_OPT_NO_CHAR_TO_INT) { break; }
+				while(*str != 0x00 && is_space(*str)) { str++; }
+				if (*str == 0x00) { break; }
+				if (*str == '-') { str++; }
+				while(*str != 0x00 && is_int(*str)) { str++; }
+				if (*str != 0x00) { break; }
+				hcurrent->intable++;
+				break;
+
 		}
 		pos += hcurrent->length;
 		hcurrent = hcurrent->next;
@@ -511,6 +513,15 @@ dtable_record * get_record(dtable * table, uint32_t idx) {
 #endif
 
 	return record;
+}
+
+dtable_field * get_field_by_idx (dtable_record * record, uint32_t idx) {
+	dtable_field * field = NULL;
+	uint32_t i = 0;
+	if (!record) { return NULL; }
+	field = record->first;
+	while(i < idx && field != NULL) { field = field->next; i++; }
+	return field;
 }
 
 dtable_field * get_field(dtable_record * record, const char * name) {
@@ -669,10 +680,18 @@ dtable * open_dtable(const char * dbf, const char * dbt, uint8_t options) {
 	table->buffer = NULL;
 
 	/* preflight dtable */
-	for(i = 0; i < table->header->recnum; i++) {
-		table->buffer = load_record(table->fp, i, table->header, table->buffer);
-		if (!table->buffer) { break; }
-		preflight_record(table->buffer, table->header);
+	if (!(options & DTABLE_OPT_NO_PREFLIGHT)) {
+		for(i = 0; i < table->header->recnum; i++) {
+			table->buffer = load_record(table->fp, i, table->header, table->buffer);
+			if (!table->buffer) { break; }
+			preflight_record(table->buffer, table->header, table->options);
+		}
+
+		for(fdesc = table->header->first; fdesc != NULL; fdesc = fdesc->next) {
+			if (fdesc->intable == table->header->recnum) {
+				fdesc->type = DTYPE_INTEGER;
+			}
+		}
 	}
 
 #ifdef DBASE_NO_CACHE
