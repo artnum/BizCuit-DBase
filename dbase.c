@@ -474,10 +474,7 @@ void free_record (dtable_record * record) {
 	dtable_field * tmp = NULL;
 	
 	if (!record) { return; }
-
-#ifdef DBASE_NO_CACHE
 	if (record->cached) { record->freed = 1; return; }
-#endif
 
 	c = record->first;
 	while (c) {
@@ -493,10 +490,10 @@ void free_record (dtable_record * record) {
 dtable_record * get_record(dtable * table, uint32_t idx) {
 	dtable_record * record = NULL;
 
-#ifdef DBASE_NO_CACHE
-	record = cache_get_record(table->cache, idx);
-	if (record) { return record; }
-#endif
+	if (!(table->options & DTABLE_OPT_NO_CACHE)) {
+		record = cache_get_record(table->cache, idx);
+		if (record) { return record; }
+	}
 
 	if (table == NULL) { return NULL; }
 	if (idx >= table->header->recnum) { return NULL; }
@@ -508,9 +505,9 @@ dtable_record * get_record(dtable * table, uint32_t idx) {
 		record->index = idx;
 	}
 
-#ifdef DBASE_NO_CACHE
-	cache_add_record(table->cache, idx, record);
-#endif
+	if (!(table->options & DTABLE_OPT_NO_CACHE)) {
+		cache_add_record(table->cache, idx, record);
+	}
 
 	return record;
 }
@@ -694,24 +691,22 @@ dtable * open_dtable(const char * dbf, const char * dbt, uint8_t options) {
 		}
 	}
 
-#ifdef DBASE_NO_CACHE
-	/* number of records don't take into account _text_ and _bmemo_ size as it is hard to know
-	 * beforehand */
-	cache_size = MAX_TABLE_CACHE_SIZE / (sizeof(dtable_record) + sizeof(dtable_field) * field_count);
-	table->cache = cache_init(cache_size, MAX_BLOCK_CACHE_SIZE);
-#endif
+	if (!(options & DTABLE_OPT_NO_CACHE)) {
+		/* number of records don't take into account _text_ and _bmemo_ size as it is hard to know
+		 * beforehand */
+		cache_size = MAX_TABLE_CACHE_SIZE / (sizeof(dtable_record) + sizeof(dtable_field) * field_count);
+		table->cache = cache_init(cache_size, MAX_BLOCK_CACHE_SIZE);
+	}
 
 	return table;
 }
 
 void close_dtable(dtable * table) {
+	if (!(table->options & DTABLE_OPT_NO_CACHE)) {
+		cache_destroy(table->cache);
+	}
 	if (table->fp) { fclose(table->fp); }
 	if (table->buffer) { free(table->buffer); }
 	free_header(table->header);
-
-#ifdef DBASE_NO_CACHE
-	cache_destroy(table->cache);
-#endif
-
 	free(table);
 }

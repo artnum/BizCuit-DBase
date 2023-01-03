@@ -29,6 +29,7 @@
 #define DTABLE_OPT_NO_DELETE		0x01
 #define DTABLE_OPT_NO_PREFLIGHT		0x02
 #define DTABLE_OPT_NO_CHAR_TO_INT	0x04
+#define DTABLE_OPT_NO_CACHE		0x08
 
 #define is_int(c) (((c) >= 0x30 && (c) <= 0x39)) 
 #define is_num(c) (((c) >= 0x30 && (c) <= 0x39) || (c) == 0x2e || (c) == 0x2d) 
