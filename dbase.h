@@ -49,7 +49,7 @@ struct s_dtable {
 	dtable_header * header;
 	long int current_record;
 	dbase_cache * cache;
-	uint8_t options;
+	uint32_t options;
 };
 
 struct s_dtable_header {
@@ -120,11 +120,11 @@ void dump_header (dtable_header * header);
 char * load_header (FILE * fp); 
 char * load_fdesc (FILE * fp, uint32_t idx, char * buffer); 
 char * load_record (FILE * fp, uint32_t idx, dtable_header * header, char * buffer); 
-void preflight_record (char * data, dtable_header * header, uint8_t options); 
+void preflight_record (char * data, dtable_header * header, uint32_t options); 
 dtable_record * parse_record (dtable * table);
 void free_record (dtable_record * record);
 
-dtable * open_dtable(const char * dbf, const char * dbt, uint8_t options); 
+dtable * open_dtable(const char * dbf, const char * dbt, uint32_t options); 
 dtable_record * get_record(dtable * table, uint32_t idx);
 dtable_record * get_first_record(dtable * table); 
 dtable_record * get_last_record(dtable * table);

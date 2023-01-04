@@ -348,7 +348,7 @@ struct tm _get_datetime_field (char * data, uint32_t len) {
 /* dbase number can be int or float, this allow, by looking at the data to
  * distinguish them
  */
-void preflight_record (char * data, dtable_header * header, uint8_t options) {
+void preflight_record (char * data, dtable_header * header, uint32_t options) {
 	int nodiv = 0;
 	uint32_t pos = 1;
 	char * str = NULL;
@@ -371,13 +371,14 @@ void preflight_record (char * data, dtable_header * header, uint8_t options) {
 				length = strlen(str);
 				if (hcurrent->max_length < length) { hcurrent->max_length = length; }
 
-				if (options & DTABLE_OPT_NO_CHAR_TO_INT) { break; }
+				if (options & DTABLE_OPT_NO_CHAR_TO_INT) { free(str); break; }
 				while(*str != 0x00 && is_space(*str)) { str++; }
 				if (*str == 0x00) { break; }
 				if (*str == '-') { str++; }
 				while(*str != 0x00 && is_int(*str)) { str++; }
 				if (*str != 0x00) { break; }
 				hcurrent->intable++;
+				free(str);
 				break;
 
 		}
@@ -625,7 +626,7 @@ dtable_record * get_previous_record(dtable * table) {
 	return get_record(table, --(table->current_record));
 }
 
-dtable * open_dtable(const char * dbf, const char * dbt, uint8_t options) {
+dtable * open_dtable(const char * dbf, const char * dbt, uint32_t options) {
 	dtable * table = NULL;
 	dtable_fdesc * fdesc = NULL;
 	FILE * fp = NULL;
