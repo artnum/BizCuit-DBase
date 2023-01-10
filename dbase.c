@@ -13,85 +13,11 @@
 #include <iconv.h>
 #include <time.h>
 
-#include "memo.h"
+#include "dbase.h"
 
 #define TABLE_FILE_HEADER_LEN       68
 #define TABLE_FILE_FIELD_DESC_LEN   48
 #define TABLE_FILE_FD_TERM          0x0D
-
-typedef struct s_dtable_header dtable_header;
-typedef struct s_dfdesc dtable_fdesc;
-typedef struct s_dfield dtable_field;
-typedef struct s_dreco dtable_record;
-
-struct s_dtable_header {
-	uint8_t version;
-	uint8_t memo_file;
-	uint8_t sql_file;
-	uint16_t year;
-	uint8_t month;
-	uint8_t day;
-	uint32_t recnum;
-	uint16_t hsize;
-	uint16_t recsize;
-
-	FILE * memo;
-	memo_header mheader;
-
-	iconv_t idesc;
-
-	dtable_fdesc * first;
-};
-
-struct s_dfdesc {
-	char name[45];
-	char type;
-	uint32_t memaddr;
-	uint8_t length;
-	uint8_t count;
-	uint8_t setfield;
-	
-	uint32_t intable;
-	
-	dtable_fdesc * next;
-};
-
-struct s_dreco {
-	dtable_fdesc * descriptor;
-	uint32_t index;
-	uint8_t deleted;
-	dtable_field * first;
-	dtable_record * next;
-	dtable_record * previous;
-};
-
-struct s_dfield {
-	dtable_fdesc * descriptor;
-	
-	char * text;
-	long int integer;
-	double number;
-	uint8_t boolean;
-	struct tm date;
-	uint32_t memo;
-	memo_block * bmemo;
-
-	uint8_t not_init;
-
-	dtable_field * next;
-};
-
-#define DTYPE_UNKNOWN	0x00
-#define DTYPE_CHAR	0x01
-#define DTYPE_DATE	0x02
-#define DTYPE_FLOAT	0x03
-#define DTYPE_BOOL	0x04
-#define DTYPE_DATETIME	0x05
-#define DTYPE_INTEGER	0x06
-#define DTYPE_CURRENCY	0x07
-#define DTYPE_MEMO	0x08
-#define DTYPE_DOUBLE	0x09
-
 const char MAP_TYPE[][2] = {
 	{ 'Y', DTYPE_CURRENCY },
 	{ 'I', DTYPE_INTEGER },
@@ -131,10 +57,10 @@ dtable_fdesc * parse_fdesc (char * data, dtable_fdesc * previous, iconv_t idesc)
 	char * in = data;
 
 	fdesc = calloc(1, sizeof(*fdesc));
-	if (!fdesc) { printf("ALLOC ERROR\n"); } 
-	/* iconv move pointer, use x to save */
-	out = fdesc->name;	
+	if (!fdesc) { return NULL; }
 
+	
+	out = fdesc->name;	
 	iconv(idesc, &in, &inleft, &out, &outleft);
 
 	while (MAP_TYPE[i][0] != '\0') {
@@ -159,7 +85,7 @@ dtable_fdesc * parse_fdesc (char * data, dtable_fdesc * previous, iconv_t idesc)
 dtable_header * parse_header (char * data) {
 	dtable_header * header = NULL;
 
-	header = malloc(sizeof(*header));
+	header = calloc(1, sizeof(*header));
 	if (!header) { return NULL; }
 
 	header->version = 	*(data + 0) & 0x7;
@@ -219,43 +145,54 @@ char * load_header (FILE * fp) {
 	char * header = NULL;
 	rewind(fp);
 
-	header = calloc(32, 1);
-	if (!header) { printf("ALLOC ERROR\n"); }
-	fread(header, 1, 32, fp);
+	header = calloc(TABLE_HEADER_LENGTH, 1);
+	if (!header) { return NULL; }
+	if (fread(header, 1, TABLE_HEADER_LENGTH, fp) != TABLE_HEADER_LENGTH) {
+		free(header);
+		return NULL;
+	}
+
 	return header;
 }
 
 char * load_fdesc (FILE * fp, uint32_t idx) {
 	char * fdesc = NULL;
 	char name[12];
-	fseek(fp, (long)((idx * 32) + 32), SEEK_SET);
+	fseek(fp, (long)((idx * FIELD_DESCRIPTOR_LENGTH) + TABLE_HEADER_LENGTH), SEEK_SET);
 
-	fdesc = calloc(32, 1);
-	if (!fdesc) { printf("ALLOC ERROR\n"); }
-	fread(fdesc, 1, 32, fp);
+	fdesc = calloc(FIELD_DESCRIPTOR_LENGTH, 1);
+	if (!fdesc) { return NULL; }
+	if (fread(fdesc, 1, FIELD_DESCRIPTOR_LENGTH, fp) != FIELD_DESCRIPTOR_LENGTH) {
+		free(fdesc);
+		return NULL;
+	}
 
 	strncpy(name, fdesc, 11);
 	name[11] = '\0';
 
-	if (fdesc[0] == 0x0D) { free(fdesc); return NULL; }
+	if (fdesc[0] == END_OF_FIELD_DESCRIPTOR) { free(fdesc); return NULL; }
 	return fdesc;
 }
 
 char * load_record (FILE * fp, uint32_t idx, dtable_header * header, char * buffer) {
 	char * data = NULL;
+	int allocated = 0;
 	fseek(fp, (long)(header->hsize + (idx * header->recsize)), SEEK_SET);
 	if (buffer != NULL) {
 		data = buffer;
 	} else {
 		data = calloc(header->recsize, sizeof(*data));
+		allocated = 1;
 	}
-	if (!data) { printf("ALLOC ERROR\n"); }
-	fread(data, sizeof(*data), header->recsize, fp);
+	if (!data) { return NULL; }
+	if(fread(data, sizeof(*data), header->recsize, fp) != header->recsize) {
+		if (allocated) { free(data); }
+		return NULL;
+	}
 
 	return data;
 }
 
-#define is_space(x) ((x) == 0x20 || (x) == 0x09 || (x) == 0x0A || (x) == 0x0D)
 
 char * to_utf8 (char * data, uint32_t len, iconv_t idesc) {
 	char * outbuff = NULL;
@@ -281,7 +218,6 @@ char * _get_text_field (char * data, uint32_t len, iconv_t idesc) {
 	return to_utf8(data, len, idesc);
 }
 
-#define is_num(c) (((c) >= 0x30 && (c) <= 0x39) || (c) == 0x2e || (c) == 0x2d) 
 
 double _get_float_field (char * data, uint32_t len, int * nodiv) {
 	int is_dec = 0;
@@ -345,7 +281,6 @@ int _get_bool_field (char * data) {
 	}
 }
 
-#define is_int(c) (((c) >= 0x30 && (c) <= 0x39)) 
 struct tm _get_date_field (char * data, uint32_t len, uint8_t *not_init) {
 	uint32_t i = 0;
 	struct tm date;
