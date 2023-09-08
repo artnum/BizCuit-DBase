@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-ggdb
+CFLAGS=-ggdb -Werror -Wall -Wpedantic
 LDFLAGS=-ggdb
 EXEC=db5-dump db5-head
 
