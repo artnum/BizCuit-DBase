@@ -3,15 +3,9 @@
 #include "dbase.h"
 
 int main (int argc, char ** argv) {
-	FILE *fp = NULL;
 	dtable * table = NULL;
-	dtable_header * header = NULL;
-	dtable_fdesc * fdesc = NULL;
 	dtable_record * record = NULL;
 	dtable_field * field = NULL;
-	char * buffer = NULL;
-	uint32_t i = 0;
-	int j = 0;
 	char datebuff[11];
 
 	if (argc < 2) { return 0; }
@@ -22,8 +16,6 @@ int main (int argc, char ** argv) {
 	}
 	if (!table) { return 0; }
 	dump_header(table->header);
-
-	buffer = NULL;
 	
 	while((record = get_next_record(table)) != NULL) {	
 		field = record->first;

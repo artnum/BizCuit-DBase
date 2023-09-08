@@ -137,7 +137,7 @@ void dump_header (dtable_header * header) {
 	while(fdesc != NULL) {
 		type = fdesc->type;
 		if (type == DTYPE_FLOAT && fdesc->intable == header->recnum) { type = DTYPE_INTEGER; }
-		printf("\t'%s' %s(%u:%d)\n", fdesc->name, type_to_str(type), fdesc->length, fdesc->max_length);
+		printf("\t'%s' %s(%u:%ld)\n", fdesc->name, type_to_str(type), fdesc->length, fdesc->max_length);
 		fdesc = fdesc->next;
 	}
 }
@@ -546,16 +546,25 @@ long int coerce_int (dtable_field * field) {
 	if (!field) { return 0; }
 	switch(field->descriptor->type) {
 		default: return 0;
-		case DTYPE_INTEGER: return field->integer;
+		case DTYPE_INTEGER: 
+			 if (field->not_init) { return 0; }
+			 return field->integer;
 		case DTYPE_CURRENCY:
 		case DTYPE_DOUBLE:
-		case DTYPE_FLOAT: return (long int)field->number;
-		case DTYPE_BOOL: return (long int)field->boolean;
+		case DTYPE_FLOAT: 
+			 if (field->not_init) { return 0; }
+			 return (long int)field->number;
+		case DTYPE_BOOL: 
+			 if (field->not_init) { return 0; }
+			 return (long int)field->boolean;
 		case DTYPE_DATETIME:
-		case DTYPE_DATE: return (long int)mktime(&(field->date));
+		case DTYPE_DATE: 
+			 if (field->not_init) { return 0; }
+			 return (long int)mktime(&(field->date));
 		case DTYPE_MEMO:
 		case DTYPE_CHAR:
-				 return _get_int_field(field->text, strlen(field->text));
+			 if (field->not_init) { return 0; }
+			 return _get_int_field(field->text, strlen(field->text));
 	}
 }
 
@@ -573,6 +582,9 @@ char * coerce_str (dtable_field * field) {
 	switch(field->descriptor->type) {
 		default: return NULL;
 		case DTYPE_INTEGER:
+			if (field->not_init) {
+				return NULL;
+			}
 			size = snprintf(NULL, 0, "%ld\n", field->integer);
 			field->text = calloc(size, sizeof(*(field->text)));
 			if (!field->text) { return NULL; }
@@ -581,6 +593,9 @@ char * coerce_str (dtable_field * field) {
 		case DTYPE_FLOAT:
 		case DTYPE_DOUBLE:
 		case DTYPE_CURRENCY:
+			if (field->not_init) {
+				return NULL;
+			}
 			size = snprintf(NULL, 0, "%f\n", field->number);
 			field->text = calloc(size, sizeof(*(field->text)));
 			if (!field->text) { return NULL; }
@@ -588,18 +603,30 @@ char * coerce_str (dtable_field * field) {
 			return field->text;
 		case DTYPE_MEMO:
 		case DTYPE_CHAR:
+			if (field->not_init) {
+				return NULL;
+			}
 			return field->text;
 		case DTYPE_BOOL:
+			if (field->not_init) {
+				return NULL;
+			}
 			field->text = calloc(2, sizeof(*(field->text)));
 			if (!field->text) { return NULL; }
 			field->text[0] = field->boolean ? '1' : '0';
 			return field->text;
 		case DTYPE_DATE:
+			if (field->not_init) {
+				return NULL;
+			}
 			field->text = calloc(11, sizeof(*(field->text)));
 			if (!field->text) { return NULL; }
 			strftime(field->text, 11, "%Y-%m-%d", &(field->date));
 			return field->text;
 		case DTYPE_DATETIME:
+			if (field->not_init) {
+				return NULL;
+			}
 			field->text = calloc(31, sizeof(*(field->text)));
 			if (!field->text) { return NULL; }
 			strftime(field->text, 31, "%Y-%m-%d %H:%m:%S", &(field->date));
