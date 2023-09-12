@@ -352,6 +352,7 @@ void preflight_record (char * data, dtable_header * header, uint32_t options) {
 	int nodiv = 0;
 	uint32_t pos = 1;
 	char * str = NULL;
+	char * tmp = NULL;
 	size_t length = 0;
 	dtable_fdesc * hcurrent = header->first;
 
@@ -368,6 +369,7 @@ void preflight_record (char * data, dtable_header * header, uint32_t options) {
 				break;
 			case DTYPE_CHAR:
 				str = _get_text_field(data + pos, hcurrent->length, header->idesc);
+				tmp = str;
 				length = strlen(str);
 				if (hcurrent->max_length < length) { hcurrent->max_length = length; }
 
@@ -378,7 +380,7 @@ void preflight_record (char * data, dtable_header * header, uint32_t options) {
 				while(*str != 0x00 && is_int(*str)) { str++; }
 				if (*str != 0x00) { break; }
 				hcurrent->intable++;
-				free(str);
+				free(tmp);
 				break;
 
 		}
